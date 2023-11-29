@@ -1,0 +1,1351 @@
+---
+title: "BDM Group 10--Heart Failure Prediction"
+author: "BDM Group 10--Abhishek, Mohan, Yimeng, Yuxi, Pengqi, Oisin"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true               # Table of Contents
+    number_sections: true
+    fig_caption: true
+    fig_width: 8
+    fig_height: 5
+    df_print: paged
+    code_folding: hide
+    highlight: tango
+    theme: cosmo
+    warning: FALSE
+---
+
+# Introduction
+
+This is used to predict mortality by heart failure, and the data set including 12 features 
+
+In this analysis, different features were first visualized, followed by correlation analysis. After dividing the training and testing sets of the dataset, SVM, KNN, LR, RFM, DT, and XGBoost models are used for analysis and prediction. And compare their accuracy to select the best model. At the same time, analyze the influencing factors of the main effective models based on the results. Finally, using standardized data, conduct model testing and accuracy comparison to determine the most suitable model.
+
+
+# Setup {.tabset .tabset-fade .tabset-pills}
+## Load libraries
+```{r, message = FALSE,results = 'hide', warning=FALSE}
+library(tidyverse)  # Data manipulation and visualization
+library(corrplot)   # Visualization of correlation matrix
+library(kernlab)    # Support Vector Machines (SVM)
+library(pROC)       # ROC curve analysis
+library(rpart)      # Decision Trees
+library(rpart.plot) # Plotting decision trees
+library(class)      # k-Nearest Neighbors (kNN)
+library(gmodels)    # CrossTable for kNN evaluation
+library(keras)      # Deep Learning with Keras
+library(randomForest) # Random Forest
+library(caret)      # Confusion matrix for Random Forest
+library(xgboost)    # XGBoost for gradient boosting
+library(GGally)
+library(kableExtra)
+library(viridis) #colour pallet
+library(patchwork) #combine plots
+library(ggplot2)
+
+```
+
+## Load data
+```{r results=FALSE, warning=FALSE, message=FALSE}
+# library(tidyverse)
+ROOT = "heart_failure_clinical_records_dataset"
+palette_ro = c("#ee2f35", "#fa7211", "#fbd600", "#75c731", "#1fb86e", "#0488cf", "#7b44ab")
+
+df <- read.csv("heart_failure_clinical_records_dataset.csv")
+data <- read.csv("heart_failure_clinical_records_dataset.csv")
+f_features = c("anaemia", "diabetes", "high_blood_pressure", "sex", "smoking", "DEATH_EVENT")
+
+df_n <- df
+df <- df %>%
+  mutate_at(f_features, as.factor)
+
+```
+
+# Check data {.tabset .tabset-fade .tabset-pills}
+Dataset from: [Machine learning can predict survival of patients with heart failure from serum creatinine and ejection fraction alone](https://bmcmedinformdecismak.biomedcentral.com/articles/10.1186/s12911-020-1023-5)
+
+## Dataset
+```{r}
+# Display the first few rows of the data and a summary
+data %>% head()
+summary(data)
+```
+
+## Explanation of variables
+* `age` - Age
+* `anaemia` - Decrease of red blood cells or hemoglobin (boolean) (0:`False`, 1:`True`)
+
+* `creatinine_phosphokinase` - Level of the CPK enzyme in the blood (mcg/L)
+
+* `diabetes` - If the patient has diabetes (boolean) (0:`False`, 1:`True`)
+
+* `ejection_fraction` - Percentage of blood leaving the heart at each contraction (percentage)
+
+* `high_blood_pressure` - If the patient has hypertension (boolean) (0:`False`, 1:`True`)
+
+* `platelets` - Platelets in the blood (kiloplatelets/mL)
+
+* `serum_creatinine` - Level of serum creatinine in the blood (mg/dL)
+
+* `serum_sodium` - Level of serum sodium in the blood (mEq/L)
+
+* `sex` - Woman or man (binary) (0: Woman, 1: Man)
+
+* `smoking` - If the patient smokes or not (boolean) (0:`False`, 1:`True`)
+
+* `time` - Follow-up period (days)
+
+* `DEATH_EVENT` - If the patient deceased during the follow-up period (boolean)
+
+
+## Data size and structure
+```{r}
+# Display the first few rows of the data and a summary
+data %>% head()
+```
+
+
+## Data summary
+```{r}
+# Display the first few rows of the data and a summary
+summary(data)
+```
+
+# Data visualizations
+Use data visualization to fast look data.<br>
+
+```{r class.source="fold-show"}
+# Create a bar plot showing the count of Death events
+ggplot(data, aes(x = factor(DEATH_EVENT), fill = factor(DEATH_EVENT))) +
+  geom_bar(color = "black", fill = c("lightblue", "salmon"), position = "identity") +
+  theme_minimal() +
+  labs(title = 'Count of Death Events', x = 'Death Event', y = 'Count') +
+  scale_fill_manual(values = c("lightblue", "salmon")) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 0.5))
+
+```
+
+## Distribution of the binary features {.tabset .tabset-fade .tabset-pills}
+
+### Features vs target (count)
+```{r fig.cap="Fig. 1", fig.height=5}
+# Plot for Anaemia
+p1 <- ggplot(df, aes(x = anaemia, fill = DEATH_EVENT)) +
+  geom_bar(stat = "count", position = "stack", show.legend = FALSE) +
+  scale_x_discrete(labels  = c("0 (False)", "1 (True)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(x = "Anaemia") +
+  theme_minimal(base_size = 12) +
+  geom_label(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5),
+             size = 5, show.legend = FALSE)
+
+# Plot for Diabetes
+p2 <- ggplot(df, aes(x = diabetes, fill = DEATH_EVENT)) +
+  geom_bar(stat = "count", position = "stack", show.legend = FALSE) +
+  scale_x_discrete(labels  = c("0 (False)", "1 (True)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(x = "Diabetes") +
+  theme_minimal(base_size = 12) +
+  geom_label(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5),
+             size = 5, show.legend = FALSE)
+
+# Plot for High Blood Pressure
+p3 <- ggplot(df, aes(x = high_blood_pressure, fill = DEATH_EVENT)) +
+  geom_bar(stat = "count", position = "stack", show.legend = FALSE) +
+  scale_x_discrete(labels  = c("0 (False)", "1 (True)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(x = "High blood pressure") +
+  theme_minimal(base_size = 12) +
+  geom_label(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5),
+             size = 5, show.legend = FALSE)
+
+# Plot for Sex
+p4 <- ggplot(df, aes(x = sex, fill = DEATH_EVENT)) +
+  geom_bar(stat = "count", position = "stack", show.legend = FALSE) +
+  scale_x_discrete(labels  = c("0 (Female)", "1 (Male)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(x = "Sex") +
+  theme_minimal(base_size = 12) +
+  geom_label(stat = "count", aes(label= ..count..), position = position_stack(vjust = 0.5),
+             size = 5, show.legend = FALSE)
+
+# Plot for Smoking
+p5 <- ggplot(df, aes(x = smoking, fill = DEATH_EVENT)) +
+  geom_bar(stat = "count", position = "stack", show.legend = FALSE) +
+  scale_x_discrete(labels  = c("0 (False)", "1 (True)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(x = "Smoking") +
+  theme_minimal(base_size = 12) +
+  geom_label(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5),
+             size = 5, show.legend = FALSE)
+
+# Plot for DEATH_EVENT
+p6 <- ggplot(df, aes(x = DEATH_EVENT, fill = DEATH_EVENT)) +
+  geom_bar(stat = "count", position = "stack", show.legend = TRUE) +
+  scale_x_discrete(labels  = c("0 (False)", "1 (True)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(x = "DEATH_EVENT") +
+  theme_minimal(base_size = 12) +
+  geom_label(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5),
+             size = 5, show.legend = FALSE)
+
+# Combine plots into a layout
+combined_plot <- ((p1 + p2 + p3) / (p4 + p5 + p6)) +
+  plot_annotation(title = "Distribution of the binary features and DEATH_EVENT")
+
+# Display the combined plot
+print(combined_plot)
+
+
+```
+Insights:
+
+* The objective variable are not distribute averagem.
+
+
+### Features vs target (percentage)
+
+```{r fig.cap="Fig. 2", fig.height=5}
+# Plot for Anaemia
+p1 <- ggplot(df, aes(y = reorder(anaemia, as.numeric(anaemia) * -1), fill = DEATH_EVENT)) +
+  geom_bar(position = "fill", show.legend = FALSE) + 
+  scale_y_discrete(labels  = c("1 (True)", "0 (False)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(subtitle = "Anaemia") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title = element_blank(), axis.text.x = element_blank())
+
+# Plot for Diabetes
+p2 <- ggplot(df, aes(y = reorder(diabetes, as.numeric(diabetes) * -1), fill = DEATH_EVENT)) +
+  geom_bar(position = "fill", show.legend = FALSE) + 
+  scale_y_discrete(labels  = c("1 (True)", "0 (False)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(subtitle = "Diabetes") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title = element_blank(), axis.text.x = element_blank())
+
+# Plot for High Blood Pressure
+p3 <- ggplot(df, aes(y = reorder(high_blood_pressure, as.numeric(high_blood_pressure) * -1), fill = DEATH_EVENT)) +
+  geom_bar(position = "fill", show.legend = FALSE) + 
+  scale_y_discrete(labels  = c("1 (True)", "0 (False)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(subtitle = "High blood pressure") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title = element_blank(), axis.text.x = element_blank())
+
+# Plot for Sex
+p4 <- ggplot(df, aes(y = reorder(sex, as.numeric(sex) * -1), fill = DEATH_EVENT)) +
+  geom_bar(position = "fill", show.legend = FALSE) + 
+  scale_y_discrete(labels  = c("1 (Male)", "0 (Female)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(subtitle = "Sex") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title = element_blank(), axis.text.x = element_blank())
+
+# Plot for Smoking
+p5 <- ggplot(df, aes(y = reorder(smoking, as.numeric(smoking) * -1), fill = DEATH_EVENT)) +
+  geom_bar(position = "fill", show.legend = TRUE) + 
+  scale_y_discrete(labels  = c("1 (True)", "0 (False)")) +
+  scale_fill_manual(values = c(palette_ro[2], palette_ro[7]),
+                    name = "DEATH_EVENT",
+                    labels = c("0 (False)", "1 (True)")) +
+  labs(subtitle = "Smoking") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title = element_blank(), legend.position = "bottom", legend.direction = "horizontal") +
+  guides(fill = guide_legend(reverse = TRUE))
+
+# Combine plots into a layout
+combined_plot <- (p1 + p2 + p3 + p4 + p5 + plot_layout(ncol = 1)) +
+  plot_annotation(title = "Distribution of the binary features and DEATH_EVENT")
+
+# Display the combined plot
+print(combined_plot)
+```
+
+
+Insights:
+
+<br>　<font color="RoyalBlue"> The probability of death distribution in diamonds, Sex, and Somking is similar, while the probability of death distribution in Anaemia and High blood pressure is different. We can speculate that there is a certain influence relationship between them, but further proof is needed. </br>
+
+## Correlation matrix
+Mark the correlation matirx with those significance level below 0.05 with a cross. Those P value are bigger than 0.05 means can not treat them as a significant one.
+
+```{r fig.cap="Fig. 11", fig.width = 12, fig.height=7.5}
+# corelation matrix (p-value) below 0.05 are marked with a cross
+cor(df_n) %>%
+  corrplot(method = "color", type = "lower", tl.col = "black", tl.srt = 45,
+           addCoef.col = TRUE,
+           p.mat = cor.mtest(df_n)$p,
+           sig.level = 0.05)
+```
+
+Use correlation coefficients to draw the Correlation matrix.
+
+```{r fig.cap="Fig. 12", fig.width = 12, fig.height=7.5}
+#  p-values are shown instead of the correlation coefficients.
+cor(df_n) %>%
+  corrplot(method = "color", type = "lower", tl.col = "black", tl.srt = 45,
+           p.mat = cor.mtest(df_n)$p,
+           insig = "p-value", sig.level = -1)
+
+```
+Insights:
+
+* `time`, `serum_creatinine`, `ejection_fraction`, `age`, and `serum_creatinine` are relative significant variables.
+
+## Distribution of Numeric features {.tabset .tabset-fade .tabset-pills}
+### Distribution of Numeric Variables by Death Event
+
+```{r, warning=FALSE}
+# Boxplot for numeric variables
+numeric_vars <- select_if(data, is.numeric)
+numeric_vars_long <- pivot_longer(numeric_vars, cols = -c(DEATH_EVENT))
+
+ggplot(numeric_vars_long, aes(x = DEATH_EVENT, y = value, fill = DEATH_EVENT)) +
+  geom_boxplot() +
+  facet_wrap(~name, scales = "free_y") +
+  theme_minimal() +
+  labs(title = 'Distribution of Numeric Variables by Death Event')
+```
+
+### Correlation heatmap for numeric variables
+```{r}
+# Correlation heatmap for numeric variables
+numeric_cor <- cor(numeric_vars)
+corrplot(numeric_cor, method = 'color', type = 'upper', tl.col = 'black')
+```
+
+### pariwise scatter plot graph (doesn`t work)
+
+```{r}
+
+# pariwise scatter plot graph
+data$DEATH_EVENT <- as.factor(data$DEATH_EVENT)
+ggpairs(data, columns = c("age", "ejection_fraction", "serum_creatinine", "platelets", "time", "DEATH_EVENT"), 
+        mapping = aes(color = DEATH_EVENT), 
+        title = 'Pairwise Scatter Plots')
+```
+
+### Additional summary statistics 
+
+```{r}
+# Additional summary statistics
+summary_stats <- summary(data)
+summary_table <- knitr::kable(summary_stats, format = "html") %>%
+  kable_styling()
+
+# Display the summary statistics table
+cat(summary_table)
+
+```
+
+
+### Mean again Further analysis:
+```{r}
+# Convert DEATH_EVENT to a factor for further analysis
+data$DEATH_EVENT <- as.factor(data$DEATH_EVENT)
+
+# Further analysis: calculating mean values for death and not death events
+death_data <- filter(data, DEATH_EVENT == 1)
+notdeath_data <- filter(data, DEATH_EVENT == 0)
+mean_death_data <- list()
+mean_notdeath_data <- list()
+clst <- list()
+
+# Loop through columns and calculate mean values
+for (i in 2:ncol(data) - 1) {
+  a <- sum(death_data[[i]]) / nrow(death_data[i])
+  mean_death_data <- append(mean_death_data, a)
+  b <- sum(notdeath_data[[i]]) / nrow(notdeath_data[i])
+  mean_notdeath_data <- append(mean_notdeath_data, b)
+  clst <- append(clst, names(data[i]))
+}
+mean_data <- as.matrix(rbind(clst, mean_death_data, mean_notdeath_data))
+mean_data
+```
+
+## Selected variables {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+lst <- list(age = data$age, ejection_fraction = data$ejection_fraction,
+            serum_creatinine = data$serum_creatinine, serum_sodium = data$serum_sodium, time = data$time)
+lstcolor <- list('red', 'blue', 'purple', 'lightblue', 'lightgreen')
+n = 1
+for (i in lst) {
+  print(ggplot(data) +
+          geom_boxplot(aes(DEATH_EVENT, i), fill = lstcolor[n], alpha = 0.5) +
+          ylab(label = names(lst)[n]))
+  n = n + 1
+}
+```
+
+# Data preprocessing
+Split the train set and the test set. 
+All seed values are fixed at 0.<br>
+
+```{r class.source="fold-show"}
+# Split the data into training and testing sets
+set.seed(1)
+train <- sample(1:nrow(data), 210)
+train_data <- data[train,]
+test_data <- data[-train,]
+```
+
+
+# Train models and make predictions 
+Now, we are going to create some models and check the performance measures. <br>
+
+## Train models {.tabset .tabset-fade .tabset-pills}
+### SVM (Support vector machine)
+
+
+```{r warning=FALSE, message=FALSE, class.source="fold-show"}
+svm_model <- ksvm(DEATH_EVENT ~ ., data = train_data, kernel = 'vanilladot') # linear kernel
+svm_model
+svm_pred <- predict(svm_model, test_data)
+table(svm_pred, test_data$DEATH_EVENT)
+agree <- svm_pred == test_data$DEATH_EVENT
+svm_acc <- prop.table(table(agree)) # accuracy
+svm_acc
+svm_roc <- roc(test_data$DEATH_EVENT, as.numeric(svm_pred))
+plot(svm_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+     auc.polygon.col = 'skyblue', max.auc.polygon = TRUE, print.thres = TRUE, main = 'ROC curve with SVM model')
+
+# Additional metrics using caret package
+svm_precision <- posPredValue(as.factor(svm_pred), as.factor(test_data$DEATH_EVENT))
+svm_recall <- sensitivity(as.factor(svm_pred), as.factor(test_data$DEATH_EVENT))
+# AUC using pROC package
+svm_roc <- roc(as.factor(test_data$DEATH_EVENT), as.numeric(svm_pred))
+svm_auc <- auc(svm_roc)
+# Display SVM model results
+cat("Support Vector Machines (SVM) Accuracy:", svm_acc, "\n")
+cat("Support Vector Machines (SVM) Precision:", svm_precision, "\n")
+cat("Support Vector Machines (SVM) Recall:", svm_recall, "\n")
+cat("Support Vector Machines (SVM) AUC:", svm_auc, "\n")
+```
+
+### Decision tree
+
+
+```{r class.source="fold-show"}
+# Decision Trees model
+tree_model <- rpart(DEATH_EVENT ~ ., data = train_data)
+rpart.plot(tree_model)
+tree_pred <- predict(tree_model, test_data, type = 'class')
+plotcp(tree_model)
+dt_acc <- sum(diag(table(test_data$DEATH_EVENT, tree_pred))) / sum(table(test_data$DEATH_EVENT, tree_pred))
+dt_acc
+dt_roc <- roc(test_data$DEATH_EVENT, as.numeric(tree_pred))
+generate_random_color <- function() {
+  paste0("#", paste0(sample(0:9, 6, replace = TRUE), collapse = ""))
+}
+plot(dt_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+      auc.polygon.col = generate_random_color(), max.auc.polygon = TRUE, print.thres = TRUE, col = "purple", main = 'ROC curve with Decision Tree model model')
+
+# Additional metrics using caret package
+tree_precision <- posPredValue(as.factor(tree_pred), as.factor(test_data$DEATH_EVENT))
+tree_recall <- sensitivity(as.factor(tree_pred), as.factor(test_data$DEATH_EVENT))
+tree_roc <- roc(as.factor(test_data$DEATH_EVENT), as.numeric(tree_pred))
+tree_auc <- auc(tree_roc)
+# Display Decision Trees model results
+cat("Decision Trees Accuracy:", dt_acc, "\n")
+cat("Decision Trees Precision:", tree_precision, "\n")
+cat("Decision Trees Recall:", tree_recall, "\n")
+cat("Decision Trees AUC:", tree_auc, "\n")
+
+```
+
+### K-Nearest Neighbors (kNN) model
+```{r}
+# k-Nearest Neighbors (kNN) model
+train_data_label <- as.factor(train_data$DEATH_EVENT)
+train_data_knn <- scale(train_data[1:12])
+test_data_label <- as.factor(test_data$DEATH_EVENT)
+test_data_knn <- scale(test_data[1:12])
+knn_pred <- knn(train = train_data_knn, test = test_data_knn, cl = train_data_label, k = 13)
+CrossTable(x = test_data_label, y = knn_pred, prop.chisq = FALSE)
+knn_acc <- sum(test_data_label == knn_pred) / length(test_data_label)
+knn_acc
+knn_roc <- roc(test_data$DEATH_EVENT, as.numeric(knn_pred))
+# Plot ROC curve for kNN model with a random color
+plot(knn_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+     auc.polygon.col = generate_random_color(), max.auc.polygon = TRUE, print.thres = TRUE, main = 'ROC curve with kNN model')
+
+# Additional metrics using caret package
+knn_precision <- posPredValue(as.factor(knn_pred), as.factor(test_data$DEATH_EVENT))
+knn_recall <- sensitivity(as.factor(knn_pred), as.factor(test_data$DEATH_EVENT))
+# AUC using pROC package
+knn_roc <- roc(as.factor(test_data$DEATH_EVENT), as.numeric(knn_pred))
+knn_auc <- auc(knn_roc)
+# Display kNN model results
+cat("k-Nearest Neighbors (kNN) Accuracy:", knn_acc, "\n")
+cat("k-Nearest Neighbors (kNN) Precision:", knn_precision, "\n")
+cat("k-Nearest Neighbors (kNN) Recall:", knn_recall, "\n")
+cat("k-Nearest Neighbors (kNN) AUC:", knn_auc, "\n")
+```
+
+
+### Logistic Regression model
+```{r}
+# Logistic Regression model
+logistic_model <- glm(DEATH_EVENT ~ ., data = train_data, family = "binomial")
+logistic_pred_prob <- predict(logistic_model, test_data, type = 'response')
+logistic_pred <- ifelse(logistic_pred_prob > 0.5, 1, 0)
+
+# Evaluate Logistic Regression model
+logistic_cM <- confusionMatrix(as.factor(logistic_pred), as.factor(test_data$DEATH_EVENT))
+logistic_acc <- sum(diag(logistic_cM$table)) / sum(logistic_cM$table)
+logistic_roc <- roc(test_data$DEATH_EVENT, logistic_pred_prob)
+# Display Logistic Regression model results
+cat("Logistic Regression Accuracy:", logistic_acc, "\n")
+plot(logistic_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+     auc.polygon.col = generate_random_color(), max.auc.polygon = TRUE, print.thres = TRUE, col = "green", main = 'ROC curve with Logistic Regression model')
+# Additional metrics using caret package
+logistic_precision <- posPredValue(as.factor(logistic_pred), as.factor(test_data$DEATH_EVENT))
+logistic_recall <- sensitivity(as.factor(logistic_pred), as.factor(test_data$DEATH_EVENT))
+logistic_roc <- roc(as.factor(test_data$DEATH_EVENT), logistic_pred_prob)
+logistic_auc <- auc(logistic_roc)
+# Display Logistic Regression model results
+cat("Logistic Regression Accuracy:", logistic_acc, "\n")
+cat("Logistic Regression Precision:", logistic_precision, "\n")
+cat("Logistic Regression Recall:", logistic_recall, "\n")
+cat("Logistic Regression AUC:", logistic_auc, "\n")
+
+
+```
+
+
+### Random Forest model
+
+```{r}
+# Random Forest model
+rf_model <- randomForest(DEATH_EVENT ~ ., data = train_data)
+rf_pred <- predict(rf_model, test_data)
+# Confusion Matrix
+rf_cM <- confusionMatrix(as.factor(rf_pred), as.factor(test_data$DEATH_EVENT))
+# Accuracy
+rf_acc <- sum(diag(rf_cM$table)) / sum(rf_cM$table)
+# Additional metrics using caret package
+rf_precision <- posPredValue(as.factor(rf_pred), as.factor(test_data$DEATH_EVENT))
+rf_recall <- sensitivity(as.factor(rf_pred), as.factor(test_data$DEATH_EVENT))
+# AUC using pROC package
+rf_roc <- roc(as.factor(test_data$DEATH_EVENT), as.numeric(rf_pred))
+rf_auc <- auc(rf_roc)
+# Display Random Forest model results
+cat("Random Forest Accuracy:", rf_acc, "\n")
+cat("Random Forest Precision:", rf_precision, "\n")
+cat("Random Forest Recall:", rf_recall, "\n")
+cat("Random Forest AUC:", rf_auc, "\n")
+
+
+# Visualize OOB error rate for Random Forest
+oob.err.data <- data.frame(
+  Trees = rep(1:nrow(rf_model$err.rate), 3),
+  Type = rep(c("OOB", "Not Death", "Death"), each = nrow(rf_model$err.rate)),
+  Error = c(rf_model$err.rate[,"OOB"], rf_model$err.rate[,"0"], rf_model$err.rate[,"1"])
+)
+round(importance(rf_model), 2)
+ggplot(data = oob.err.data, aes(x = Trees, y = Error)) + geom_line(aes(color = Type))
+
+
+
+```
+
+
+
+### XGBoost model
+
+```{r}
+# Continue with XGBoost model
+# (Note: This section might take some time to run as it involves cross-validation)
+
+# Set DEATH_EVENT to 0 or 1 for binary classification
+train_data$DEATH_EVENT <- ifelse(as.numeric(train_data$DEATH_EVENT) == 2, 1, 0)
+test_data$DEATH_EVENT <- ifelse(as.numeric(test_data$DEATH_EVENT) == 2, 1, 0)
+
+# Create matrices for XGBoost
+dtrain <- xgb.DMatrix(data = as.matrix(train_data[1:12]), label = train_data$DEATH_EVENT)
+dtest <- xgb.DMatrix(data = as.matrix(test_data[1:12]), label = test_data$DEATH_EVENT)
+
+# Set parameters for XGBoost
+xgb.params <- list(
+  colsample_bytree = 0.5, # Column sampling
+  subsample = 0.5,        # Row sampling
+  booster = 'gbtree',
+  max_depth = 2,          # Maximum depth of tree
+  eta = 0.03,             # Learning rate
+  eval_metric = 'logloss',
+  objective = 'binary:logistic', # For binary classification
+  gamma = 0
+)
+
+# Cross-validate to find the optimal number of rounds
+cv.model <- xgb.cv(
+  params = xgb.params,
+  data = dtrain,
+  nfold = 5,
+  nrounds = 200,
+  early_stopping_rounds = 30, # Stop if there's overfitting before 30 rounds
+  print_every_n = 20
+)
+
+# Plot average performance in cross-validation
+tmp <- cv.model$evaluation_log
+ggplot(tmp, aes(x = 1:nrow(tmp))) +
+  geom_point(aes(y = tmp$train_logloss_mean, color = 'train')) +
+  geom_point(aes(y = tmp$test_logloss_mean, color = 'test')) +
+  labs(title = 'Avg.Performance in CV', x = "nround", y = "logloss")
+
+# Find the best number of rounds
+best.nrounds <- cv.model$best_iteration
+
+# Train the final XGBoost model with the best number of rounds
+xgb.model <- xgb.train(data = dtrain, params = xgb.params, nrounds = best.nrounds)
+
+# Make predictions on the test set
+xgb_pred <- predict(xgb.model, dtest)
+xgb_pred <- ifelse(xgb_pred > 0.5, 1, 0)
+
+# Evaluate the XGBoost model
+xgb_cM <- confusionMatrix(as.factor(xgb_pred), as.factor(test_data$DEATH_EVENT))
+xgb_acc <- sum(diag(xgb_cM$table)) / sum(xgb_cM$table)
+xgb_acc
+
+# Evaluate the XGBoost model
+xgb_precision <- posPredValue(as.factor(xgb_pred), as.factor(test_data$DEATH_EVENT))
+xgb_recall <- sensitivity(as.factor(xgb_pred), as.factor(test_data$DEATH_EVENT))
+xgb_roc <- roc(as.factor(test_data$DEATH_EVENT), as.numeric(xgb_pred))
+xgb_auc <- auc(xgb_roc)
+
+# Display XGBoost model results
+cat("XGBoost Accuracy:", xgb_acc, "\n")
+cat("XGBoost Precision:", xgb_precision, "\n")
+cat("XGBoost Recall:", xgb_recall, "\n")
+cat("XGBoost AUC:", xgb_auc, "\n")
+
+# Draw the ROC picture
+xgb_roc <- roc(as.factor(test_data$DEATH_EVENT), xgb_pred)
+
+plot(xgb_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+     auc.polygon.col = generate_random_color(), max.auc.polygon = TRUE, print.thres = TRUE, col = "red", main = 'ROC curve with XGBoost model model')
+
+
+
+```
+
+## Compare models{.tabset .tabset-fade .tabset-pills}
+
+### Comare the model with different measure index{.tabset .tabset-fade .tabset-pills}
+#### Accuracy values for different models use standardize data
+```{r}
+
+# Create a data frame with accuracy values for different models
+model_data <- data.frame(
+  accuracy = c(svm_acc[2], dt_acc, knn_acc, rf_acc, xgb_acc,logistic_acc),
+  model = c('SVM', 'DT', 'Knn', 'RF', 'Xgb', 'LGR')
+)
+model_data$accuracy <- (100 * round(model_data$accuracy, 3))
+model_data
+
+
+# Visualize model ac curacies using a bar plot
+ggplot(model_data) +
+  geom_bar(aes(model, accuracy, fill = accuracy), stat = 'identity') +
+  geom_text(aes(model, accuracy, label = accuracy),
+            position = position_dodge(0.9), vjust = 0) +
+ scale_fill_gradientn(colors = c('#D2B48C','#80D3EE','#80D3EE','#80D3EE', '#E0FFFF',  '#40C0EE', '#00B2EE', '#0099EE', '#0077EE',  '#0011EE'), limits = c(84, 92))
+```
+
+#### Precision values for different models use standardize data
+```{r}
+# Create a data frame with accuracy values for different models
+model_data_precision <- data.frame(
+  precision = c(svm_precision, tree_precision, knn_precision, rf_precision, xgb_precision, logistic_precision),
+  model = c('SVM', 'DT', 'Knn', 'RF', 'Xgb', 'LGR')
+)
+model_data_precision$precision <- (100 * round(model_data_precision$precision, 3))
+model_data_precision
+
+
+# Visualize model ac curacies using a bar plot
+ggplot(model_data_precision) +
+  geom_bar(aes(model, precision, fill = precision), stat = 'identity') +
+  geom_text(aes(model, precision, label = precision),
+            position = position_dodge(0.9), vjust = 0) +
+ scale_fill_gradientn(colors = c('#D2B48C','#80D3EE','#80D3EE','#80D3EE', '#E0FFFF',  '#40C0EE', '#00B2EE', '#0099EE', '#0077EE',  '#0011EE'), limits = c(84, 92))
+```
+
+
+#### Recall values for different models use standardize data
+```{r}
+# Create a data frame with accuracy values for different models
+model_data_recall <- data.frame(
+  recall = c(svm_precision, tree_precision, knn_precision, rf_precision, xgb_precision, logistic_precision),
+  model = c('SVM', 'DT', 'Knn', 'RF', 'Xgb', 'LGR')
+)
+model_data_recall$recall <- (100 * round(model_data_recall$recall, 3))
+model_data_recall 
+
+# Visualize model recall using a bar plot
+ggplot(model_data_recall) +
+  geom_bar(aes(model, recall, fill = recall), stat = 'identity') +
+  geom_text(aes(model, recall, label = recall),
+            position = position_dodge(0.9), vjust = 0) +
+  scale_fill_gradientn(colors = c('#D2B48C', '#80D3EE', '#80D3EE', '#80D3EE', '#E0FFFF', '#40C0EE', '#00B2EE', '#0099EE', '#0077EE', '#0011EE'), limits = c(84, 92))
+
+```
+
+#### AUC values for different models use standardize data
+```{r}
+# Create a data frame with accuracy values for different models
+model_data_auc <- data.frame(
+  auc = c(svm_auc, tree_auc, knn_auc, rf_auc, xgb_auc, logistic_auc),
+  model = c('SVM', 'DT', 'Knn', 'RF', 'Xgb', 'LGR')
+)
+model_data_auc$auc <- (100 * round(model_data_auc$auc, 3))
+model_data_auc 
+
+# Visualize model recall using a bar plot
+ggplot(model_data_auc) +
+  geom_bar(aes(model, auc, fill = auc), stat = 'identity') +
+  geom_text(aes(model, auc, label = auc),
+            position = position_dodge(0.9), vjust = 0) +
+  scale_fill_gradientn(colors = c('#D2B48C', '#80D3EE', '#80D3EE', '#80D3EE', '#E0FFFF', '#40C0EE', '#00B2EE', '#0099EE', '#0077EE', '#0011EE'), limits = c(84, 92))
+
+```
+
+#### reviwe of different measure index
+```{r}
+# Create a data frame with accuracy, precision, recall, and AUC values for different models
+
+model_data_mix <- data.frame(
+  model = c("SVM", "DT", "Knn", "RF", "Xgb", "LGR"),
+  accuracy = c(svm_acc[2], dt_acc, knn_acc, rf_acc, xgb_acc, logistic_acc)*100,
+  precision = c(svm_precision, tree_precision, knn_precision, rf_precision, xgb_precision, logistic_precision)*100,
+  recall = c(svm_recall, tree_recall, knn_recall, rf_recall, xgb_recall, logistic_recall)*100,
+  auc = c(svm_auc, tree_auc, knn_auc, rf_auc, xgb_auc, logistic_auc)*100
+)
+
+
+# Display the data frame
+print(model_data_mix)
+
+
+accuracies <- c(svm_acc[2], dt_acc, knn_acc, rf_acc, xgb_acc, logistic_acc)*100
+recalls <-c(svm_recall, tree_recall, knn_recall, rf_recall, xgb_recall, logistic_recall)*100
+precisions <- c(svm_precision, tree_precision, knn_precision, rf_precision, xgb_precision, logistic_precision)*100
+aucs <- c(svm_auc, tree_auc, knn_auc, rf_auc, xgb_auc, logistic_auc)*100
+
+# Combine metrics into a matrix
+metrics_matrix <- rbind(accuracies, recalls, precisions, aucs)
+
+# Create bar chart depend on model
+barplot(metrics_matrix, beside = TRUE, col = rainbow(4),
+        names.arg = c("SVM", "DT", "Knn", "RF", "Xgb", "LGR"), legend.text = rownames(metrics_matrix),
+        main = 'Performance Metrics for Classification Models',
+        xlab = 'Models', ylab = 'Percentage')
+# Create bar chart depend on measure index
+metrics_matrix_transposed = t(metrics_matrix)
+
+barplot(metrics_matrix_transposed, beside = TRUE, col = rainbow(6),
+        names.arg = c("accuracies", "recalls", "precisions", "aucs "), legend.text = c("SVM", "DT", "Knn", "RF", "Xgb", "LGR"),
+        main = 'Performance Metrics for Classification Models',
+        xlab = 'Models', ylab = 'Percentage')
+
+```
+
+
+
+## Visualize the Variable importance of tree based models  {.tabset .tabset-fade .tabset-pills} 
+
+### Variable importance for random forest model
+```{r}
+var_imp <- as.data.frame(importance(rf_model))
+ggplot(var_imp, aes(x = rownames(var_imp), y = MeanDecreaseGini)) +
+  geom_bar(stat = 'identity', fill = 'skyblue') +  # Change fill color
+  labs(title = 'Random Forest Variable Importance', x = 'Variable', y = 'Mean Decrease in Gini Index') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+### Calculate variable importance manually for decision tree
+```{r}
+# Calculate variable importance manually for decision tree
+dt_var_importance <- function(model) {
+  imp <- model$variable.importance
+  imp[order(imp, decreasing = TRUE)]
+}
+
+# Get variable importance
+dt_var_imp <- dt_var_importance(tree_model)
+
+# Plot variable importance for decision tree
+ggplot(data.frame(Variable = names(dt_var_imp), Importance = dt_var_imp), aes(x = Variable, y = Importance)) +
+  geom_bar(stat = 'identity', fill = 'lightcoral') +  # Change fill color
+  labs(title = 'Decision Tree Variable Importance', x = 'Variable', y = 'Importance') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Extract variable importance for XGBoost
+```{r}
+# Extract variable importance for XGBoost
+xgb_var_imp <- xgb.importance(model = xgb.model)
+
+# Plot variable importance for XGBoost
+ggplot(xgb_var_imp, aes(x = Feature, y = Gain)) +
+  geom_bar(stat = 'identity', fill = 'lightgreen') +  # Change fill color
+  labs(title = 'XGBoost Variable Importance', x = 'Variable', y = 'Gain') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Extract the coefficients from the Logistic Regression model
+```{r}
+# Extract the coefficients from the Logistic Regression model
+coefficients <- coef(logistic_model)
+
+# Calculate the variable importance using the coefficients
+variable_importance <- abs(coefficients)
+
+# Create a data frame
+importance_df <- data.frame(variable = names(variable_importance), importance = variable_importance)
+# Create a data frame
+importance_df <- data.frame(variable = names(variable_importance), importance = variable_importance)
+# Sort the importance_df data frame by importance values in descending order
+importance_df <- importance_df %>%
+  arrange(desc(importance))
+# Select the top 10 most important variables
+top_variables <- importance_df[1:10, "variable"]
+# Create a bar chart using ggplot2
+ggplot2::ggplot(importance_df, aes(x = variable, y = importance)) +
+  ggplot2::geom_bar(stat = "identity", fill = "skyblue") +  # Change fill color
+  ggplot2::labs(title = "Logistic Regression Variable Importance", x = "Variable", y = "Importance") +
+  ggplot2::theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+### Support Vector Machines (SVM) model
+```{r}
+svm_model <- ksvm(DEATH_EVENT ~ ., data = train_data, kernel = 'vanilladot') # linear kernel
+# Visualize support vectors
+svm_support_vectors <- train_data[svm_model@SVindex, ]
+ggplot(data, aes(x = age, y = serum_creatinine, color = as.factor(DEATH_EVENT))) +
+  geom_point(alpha = 0.5) +
+  geom_point(data = svm_support_vectors, color = "red", size = 3, shape = 4) +
+  labs(title = 'SVM Support Vectors Visualization', x = 'Age', y = 'Serum Creatinine') +
+  theme_minimal()
+
+```
+
+## ROC values for different models{.tabset .tabset-fade .tabset-pills}
+```{r}
+
+
+# Decision Trees model
+train_data$DEATH_EVENT <- as.factor(train_data$DEATH_EVENT)
+tree_model <- rpart(DEATH_EVENT ~ ., data = train_data)
+tree_pred <- predict(tree_model, test_data, type = 'class')
+dt_roc <- roc(test_data$DEATH_EVENT, as.numeric(tree_pred))
+
+# k-Nearest Neighbors (kNN) model
+knn_pred <- knn(train = train_data_knn, test = test_data_knn, cl = train_data_label, k = 13)
+knn_roc <- roc(test_data_label, as.numeric(knn_pred))
+
+# Random Forest model
+rf_pred <- predict(rf_model, test_data)
+rf_roc <- roc(test_data$DEATH_EVENT, as.numeric(rf_pred))
+
+# XGBoost model
+xgb_pred <- predict(xgb.model, dtest)
+xgb_roc <- roc(test_data$DEATH_EVENT, as.numeric(xgb_pred))
+
+# Logistic Regression model
+logistic_pred <- predict(logistic_model, test_data, type = 'response')
+logistic_roc <- roc(test_data$DEATH_EVENT, logistic_pred)
+
+# Plot ROC curves for all models
+roc_plot <- ggroc(list('SVM' = svm_roc, 'Decision Tree' = dt_roc, 'kNN' = knn_roc, 'Random Forest' = rf_roc, 'XGBoost' = xgb_roc, 'Logistic Regression' = logistic_roc), 
+                  title = 'ROC Curves for Different Models')
+
+# Display ROC curves
+print(roc_plot)
+
+```
+
+# Same again but with standardized data does it change the accuracy?
+
+## Data processing {.tabset .tabset-fade .tabset-pills}
+
+### Standardize the numeric columns
+```{r}
+numeric_columns <- c("age", "creatinine_phosphokinase", "ejection_fraction", 
+                     "platelets", "serum_creatinine", "serum_sodium", "time")
+
+# Standardize the numeric columns
+df_n[numeric_columns] <- scale(df_n[numeric_columns])
+
+# Display the standardized data
+print(df_n[(1:10),])
+```
+
+### Split the data into training and testing sets
+
+```{r}
+# Split the data into training and testing sets
+set.seed(1)
+train <- sample(1:nrow(df_n), 210)
+train_data <- df_n[train,]
+test_data <- df_n[-train,]
+
+
+#needs to be treated as classification not regression
+train_data$DEATH_EVENT <- factor(train_data$DEATH_EVENT)
+test_data$DEATH_EVENT <- factor(test_data$DEATH_EVENT)
+
+```
+
+## Model test{.tabset .tabset-fade .tabset-pills}
+
+### Support Vector Machines (SVM) model
+
+```{r,warning=FALSE}
+# Support Vector Machines (SVM) model
+svm_model <- ksvm(DEATH_EVENT ~ ., data = train_data, kernel = 'vanilladot') # linear kernel
+svm_pred <- predict(svm_model, test_data)
+# Confusion Matrix
+svm_cM <- confusionMatrix(as.factor(svm_pred), as.factor(test_data$DEATH_EVENT))
+# Accuracy
+agree <- svm_pred == test_data$DEATH_EVENT
+svm_acc <- prop.table(table(agree)) # accuracy
+svm_acc
+# Additional metrics using caret package
+svm_precision <- posPredValue(as.factor(svm_pred), as.factor(test_data$DEATH_EVENT))
+svm_recall <- sensitivity(as.factor(svm_pred), as.factor(test_data$DEATH_EVENT))
+# AUC using pROC package
+svm_roc <- roc(as.factor(test_data$DEATH_EVENT), as.numeric(svm_pred))
+svm_auc <- auc(svm_roc)
+# Display SVM model results
+cat("Support Vector Machines (SVM) Accuracy:", svm_acc, "\n")
+cat("Support Vector Machines (SVM) Precision:", svm_precision, "\n")
+cat("Support Vector Machines (SVM) Recall:", svm_recall, "\n")
+cat("Support Vector Machines (SVM) AUC:", svm_auc, "\n")
+
+```
+
+### K-Nearest Neighbors (kNN) model
+```{r}
+train_data_label <- as.factor(train_data$DEATH_EVENT)
+train_data_knn <- scale(train_data[1:12])
+test_data_label <- as.factor(test_data$DEATH_EVENT)
+test_data_knn <- scale(test_data[1:12])
+knn_pred <- knn(train = train_data_knn, test = test_data_knn, cl = train_data_label, k = 13)
+# Confusion Matrix
+knn_cM <- confusionMatrix(as.factor(knn_pred), as.factor(test_data$DEATH_EVENT))
+# Accuracy
+knn_acc <- sum(diag(knn_cM$table)) / sum(knn_cM$table)
+# Additional metrics using caret package
+knn_precision <- posPredValue(as.factor(knn_pred), as.factor(test_data$DEATH_EVENT))
+knn_recall <- sensitivity(as.factor(knn_pred), as.factor(test_data$DEATH_EVENT))
+# AUC using pROC package
+knn_roc <- roc(as.factor(test_data$DEATH_EVENT), as.numeric(knn_pred))
+knn_auc <- auc(knn_roc)
+# Display kNN model results
+cat("k-Nearest Neighbors (kNN) Accuracy:", knn_acc, "\n")
+cat("k-Nearest Neighbors (kNN) Precision:", knn_precision, "\n")
+cat("k-Nearest Neighbors (kNN) Recall:", knn_recall, "\n")
+cat("k-Nearest Neighbors (kNN) AUC:", knn_auc, "\n")
+```
+### Logistic Regression model
+
+```{r}
+
+# Logistic Regression model
+logistic_model <- glm(DEATH_EVENT ~ ., data = train_data, family = "binomial")
+logistic_pred_prob <- predict(logistic_model, test_data, type = 'response')
+logistic_pred <- ifelse(logistic_pred_prob > 0.5, 1, 0)
+# Evaluate Logistic Regression model
+logistic_cM <- confusionMatrix(as.factor(logistic_pred), as.factor(test_data$DEATH_EVENT))
+logistic_acc <- sum(diag(logistic_cM$table)) / sum(logistic_cM$table)
+# Additional metrics using caret package
+logistic_precision <- posPredValue(as.factor(logistic_pred), as.factor(test_data$DEATH_EVENT))
+logistic_recall <- sensitivity(as.factor(logistic_pred), as.factor(test_data$DEATH_EVENT))
+logistic_roc <- roc(as.factor(test_data$DEATH_EVENT), logistic_pred_prob)
+logistic_auc <- auc(logistic_roc)
+# Display Logistic Regression model results
+cat("Logistic Regression Accuracy:", logistic_acc, "\n")
+cat("Logistic Regression Precision:", logistic_precision, "\n")
+cat("Logistic Regression Recall:", logistic_recall, "\n")
+cat("Logistic Regression AUC:", logistic_auc, "\n")
+
+
+```
+
+### Random Forest model
+```{r}
+
+
+# Random Forest model
+rf_model <- randomForest(DEATH_EVENT ~ ., data = train_data)
+rf_pred <- predict(rf_model, test_data)
+# Confusion Matrix
+rf_cM <- confusionMatrix(as.factor(rf_pred), as.factor(test_data$DEATH_EVENT))
+# Accuracy
+rf_acc <- sum(diag(rf_cM$table)) / sum(rf_cM$table)
+# Additional metrics using caret package
+rf_precision <- posPredValue(as.factor(rf_pred), as.factor(test_data$DEATH_EVENT))
+rf_recall <- sensitivity(as.factor(rf_pred), as.factor(test_data$DEATH_EVENT))
+# AUC using pROC package
+rf_roc <- roc(as.factor(test_data$DEATH_EVENT), as.numeric(rf_pred))
+rf_auc <- auc(rf_roc)
+# Display Random Forest model results
+cat("Random Forest Accuracy:", rf_acc, "\n")
+cat("Random Forest Precision:", rf_precision, "\n")
+cat("Random Forest Recall:", rf_recall, "\n")
+cat("Random Forest AUC:", rf_auc, "\n")
+```
+
+### Decision Trees model
+```{r}
+
+# Decision Trees model
+tree_model <- rpart(DEATH_EVENT ~ ., data = train_data)
+rpart.plot(tree_model)
+# Predict using the decision tree model on the test set
+tree_pred <- predict(tree_model, test_data, type = 'class')
+# Confusion Matrix
+tree_cM <- confusionMatrix(as.factor(tree_pred), as.factor(test_data$DEATH_EVENT))
+# Accuracy
+dt_acc <- sum(diag(tree_cM$table)) / sum(tree_cM$table)
+# Additional metrics using caret package
+tree_precision <- posPredValue(as.factor(tree_pred), as.factor(test_data$DEATH_EVENT))
+tree_recall <- sensitivity(as.factor(tree_pred), as.factor(test_data$DEATH_EVENT))
+tree_roc <- roc(as.factor(test_data$DEATH_EVENT), as.numeric(tree_pred))
+tree_auc <- auc(tree_roc)
+# Display Decision Trees model results
+cat("Decision Trees Accuracy:", dt_acc, "\n")
+cat("Decision Trees Precision:", tree_precision, "\n")
+cat("Decision Trees Recall:", tree_recall, "\n")
+cat("Decision Trees AUC:", tree_auc, "\n")
+```
+
+### XGBoost model
+```{r}
+
+
+# Continue with XGBoost model
+# (Note: This section might take some time to run as it involves cross-validation)
+
+# Set DEATH_EVENT to 0 or 1 for binary classification
+train_data$DEATH_EVENT <- ifelse(as.numeric(train_data$DEATH_EVENT) == 2, 1, 0)
+test_data$DEATH_EVENT <- ifelse(as.numeric(test_data$DEATH_EVENT) == 2, 1, 0)
+
+# Create matrices for XGBoost
+dtrain <- xgb.DMatrix(data = as.matrix(train_data[1:12]), label = train_data$DEATH_EVENT)
+dtest <- xgb.DMatrix(data = as.matrix(test_data[1:12]), label = test_data$DEATH_EVENT)
+
+# Set parameters for XGBoost
+xgb.params <- list(
+  colsample_bytree = 0.5, # Column sampling
+  subsample = 0.5,        # Row sampling
+  booster = 'gbtree',
+  max_depth = 2,          # Maximum depth of tree
+  eta = 0.03,             # Learning rate
+  eval_metric = 'logloss',
+  objective = 'binary:logistic', # For binary classification
+  gamma = 0
+)
+
+# Cross-validate to find the optimal number of rounds
+cv.model <- xgb.cv(
+  params = xgb.params,
+  data = dtrain,
+  nfold = 5,
+  nrounds = 200,
+  early_stopping_rounds = 30, # Stop if there's overfitting before 30 rounds
+  print_every_n = 20
+)
+
+# Plot average performance in cross-validation
+tmp <- cv.model$evaluation_log
+ggplot(tmp, aes(x = 1:nrow(tmp))) +
+  geom_point(aes(y = tmp$train_logloss_mean, color = 'train')) +
+  geom_point(aes(y = tmp$test_logloss_mean, color = 'test')) +
+  labs(title = 'Avg.Performance in CV', x = "nround", y = "logloss")
+
+# Find the best number of rounds
+best.nrounds <- cv.model$best_iteration
+
+# Train the final XGBoost model with the best number of rounds
+xgb.model <- xgb.train(data = dtrain, params = xgb.params, nrounds = best.nrounds)
+
+# Make predictions on the test set
+xgb_pred <- predict(xgb.model, dtest)
+xgb_pred <- ifelse(xgb_pred > 0.5, 1, 0)
+
+# Evaluate the XGBoost model
+xgb_cM <- confusionMatrix(as.factor(xgb_pred), as.factor(test_data$DEATH_EVENT))
+xgb_acc <- sum(diag(xgb_cM$table)) / sum(xgb_cM$table)
+xgb_acc
+
+# Evaluate the XGBoost model
+xgb_precision <- posPredValue(as.factor(xgb_pred), as.factor(test_data$DEATH_EVENT))
+xgb_recall <- sensitivity(as.factor(xgb_pred), as.factor(test_data$DEATH_EVENT))
+xgb_roc <- roc(as.factor(test_data$DEATH_EVENT), as.numeric(xgb_pred))
+xgb_auc <- auc(xgb_roc)
+
+# Display XGBoost model results
+cat("XGBoost Accuracy:", xgb_acc, "\n")
+cat("XGBoost Precision:", xgb_precision, "\n")
+cat("XGBoost Recall:", xgb_recall, "\n")
+cat("XGBoost AUC:", xgb_auc, "\n")
+
+```
+
+## Draw the ROC pciture {.tabset .tabset-fade .tabset-pills}
+
+### Plot ROC curve for kNN model with a random color
+```{r}
+
+# Function to generate a random color
+generate_random_color <- function() {
+  paste0("#", paste0(sample(0:9, 6, replace = TRUE), collapse = ""))
+}
+
+# Plot ROC curve for kNN model with a random color
+plot(knn_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+     auc.polygon.col = generate_random_color(), max.auc.polygon = TRUE, print.thres = TRUE, main = 'ROC curve with kNN model')
+
+# Repeat the same for other models, assigning a different color to each
+# Use different colors for SVM, Logistic Regression, Random Forest, and Decision Trees
+```
+
+### Plot ROC curve for SVM model with a random color
+```{r}
+plot(svm_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+     auc.polygon.col = generate_random_color(), max.auc.polygon = TRUE, print.thres = TRUE, col = "blue", main = 'ROC curve with SVM model')
+```
+
+### Plot ROC curve for Logistic Regression model with a random color
+```{r}
+plot(logistic_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+     auc.polygon.col = generate_random_color(), max.auc.polygon = TRUE, print.thres = TRUE, col = "green", main = 'ROC curve with Logistic Regression model')
+```
+
+### Plot ROC curve for Random Forest model with a random color
+```{r}
+plot(rf_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+     auc.polygon.col = generate_random_color(), max.auc.polygon = TRUE, print.thres = TRUE, col = "orange", main = 'ROC curve with Random Forest model model')
+```
+
+### Plot ROC curve for Decision Tree model with a random color
+```{r}
+plot(tree_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+     auc.polygon.col = generate_random_color(), max.auc.polygon = TRUE, print.thres = TRUE, col = "purple", main = 'ROC curve with Decision Tree model model')
+
+```
+
+
+### Plot ROC curve for XGBoost model with a random color
+```{r}
+# Evaluate the XGBoost model
+xgb_roc <- roc(as.factor(test_data$DEATH_EVENT), xgb_pred)
+xgb_auc <- auc(xgb_roc)
+
+# Plot the ROC curve
+
+plot(xgb_roc, print.auc = TRUE, auc.polygon = TRUE, grid = c(0.1, 0.2),
+     auc.polygon.col = generate_random_color(), max.auc.polygon = TRUE, print.thres = TRUE, col = "red", main = 'ROC curve with XGBoost model model')
+
+# Print the AUC
+cat("XGBoost AUC:", xgb_auc, "\n")
+```
+
+## ROC values for different models{.tabset .tabset-fade .tabset-pills}
+```{r}
+
+# Plot ROC curves for all models
+roc_plot <- ggroc(list('SVM' = svm_roc, 'Decision Tree' = dt_roc, 'kNN' = knn_roc, 'Random Forest' = rf_roc, 'XGBoost' = xgb_roc, 'Logistic Regression' = logistic_roc), 
+                  title = 'ROC Curves for Different Models')
+
+# Display ROC curves
+print(roc_plot)
+
+```
+
+
+### Visualize OOB error rate for Random Forest
+```{r}
+# Visualize OOB error rate for Random Forest
+oob.err.data <- data.frame(
+  Trees = rep(1:nrow(rf_model$err.rate), 3),
+  Type = rep(c("OOB", "Not Death", "Death"), each = nrow(rf_model$err.rate)),
+  Error = c(rf_model$err.rate[,"OOB"], rf_model$err.rate[,"0"], rf_model$err.rate[,"1"])
+)
+round(importance(rf_model), 2)
+ggplot(data = oob.err.data, aes(x = Trees, y = Error)) + geom_line(aes(color = Type))
+```
+
+## Comare the model with different measure index{.tabset .tabset-fade .tabset-pills}
+### Accuracy values for different models use standardize data
+```{r}
+
+# Create a data frame with accuracy values for different models
+model_data <- data.frame(
+  accuracy = c(svm_acc[2], dt_acc, knn_acc, rf_acc, xgb_acc, logistic_acc),
+  model = c('SVM', 'DT', 'Knn', 'RF', 'Xgb', 'LGR')
+)
+model_data$accuracy <- (100 * round(model_data$accuracy, 3))
+model_data
+
+
+# Visualize model ac curacies using a bar plot
+ggplot(model_data) +
+  geom_bar(aes(model, accuracy, fill = accuracy), stat = 'identity') +
+  geom_text(aes(model, accuracy, label = accuracy),
+            position = position_dodge(0.9), vjust = 0) +
+ scale_fill_gradientn(colors = c('#D2B48C','#80D3EE','#80D3EE','#80D3EE', '#E0FFFF',  '#40C0EE', '#00B2EE', '#0099EE', '#0077EE',  '#0011EE'), limits = c(84, 92))
+```
+
+### Precision values for different models use standardize data
+```{r}
+# Create a data frame with accuracy values for different models
+model_data_precision <- data.frame(
+  precision = c(svm_precision, tree_precision, knn_precision, rf_precision, xgb_precision, logistic_precision),
+  model = c('SVM', 'DT', 'Knn', 'RF', 'Xgb', 'LGR')
+)
+model_data_precision$precision <- (100 * round(model_data_precision$precision, 3))
+model_data_precision
+
+
+# Visualize model ac curacies using a bar plot
+ggplot(model_data_precision) +
+  geom_bar(aes(model, precision, fill = precision), stat = 'identity') +
+  geom_text(aes(model, precision, label = precision),
+            position = position_dodge(0.9), vjust = 0) +
+ scale_fill_gradientn(colors = c('#D2B48C','#80D3EE','#80D3EE','#80D3EE', '#E0FFFF',  '#40C0EE', '#00B2EE', '#0099EE', '#0077EE',  '#0011EE'), limits = c(84, 92))
+```
+
+
+### Recall values for different models use standardize data
+```{r}
+# Create a data frame with accuracy values for different models
+model_data_recall <- data.frame(
+  recall = c(svm_precision, tree_precision, knn_precision, rf_precision, xgb_precision, logistic_precision),
+  model = c('SVM', 'DT', 'Knn', 'RF', 'Xgb', 'LGR')
+)
+model_data_recall$recall <- (100 * round(model_data_recall$recall, 3))
+model_data_recall 
+
+# Visualize model recall using a bar plot
+ggplot(model_data_recall) +
+  geom_bar(aes(model, recall, fill = recall), stat = 'identity') +
+  geom_text(aes(model, recall, label = recall),
+            position = position_dodge(0.9), vjust = 0) +
+  scale_fill_gradientn(colors = c('#D2B48C', '#80D3EE', '#80D3EE', '#80D3EE', '#E0FFFF', '#40C0EE', '#00B2EE', '#0099EE', '#0077EE', '#0011EE'), limits = c(84, 92))
+
+```
+
+### AUC values for different models use standardize data
+```{r}
+# Create a data frame with accuracy values for different models
+model_data_auc <- data.frame(
+  auc = c(svm_auc, tree_auc, knn_auc, rf_auc, xgb_auc, logistic_auc),
+  model = c('SVM', 'DT', 'Knn', 'RF', 'Xgb', 'LGR')
+)
+model_data_auc$auc <- (100 * round(model_data_auc$auc, 3))
+model_data_auc 
+
+# Visualize model recall using a bar plot
+ggplot(model_data_auc) +
+  geom_bar(aes(model, auc, fill = auc), stat = 'identity') +
+  geom_text(aes(model, auc, label = auc),
+            position = position_dodge(0.9), vjust = 0) +
+  scale_fill_gradientn(colors = c('#D2B48C', '#80D3EE', '#80D3EE', '#80D3EE', '#E0FFFF', '#40C0EE', '#00B2EE', '#0099EE', '#0077EE', '#0011EE'), limits = c(84, 92))
+
+```
+
+## Reviwe of different measure index
+```{r}
+# Create a data frame with accuracy, precision, recall, and AUC values for different models
+
+model_data_mix <- data.frame(
+  model = c("SVM", "DT", "Knn", "RF", "Xgb", "LGR"),
+  accuracy = c(svm_acc[2], dt_acc, knn_acc, rf_acc, xgb_acc, logistic_acc)*100,
+  precision = c(svm_precision, tree_precision, knn_precision, rf_precision, xgb_precision, logistic_precision)*100,
+  recall = c(svm_recall, tree_recall, knn_recall, rf_recall, xgb_recall, logistic_recall)*100,
+  auc = c(svm_auc, tree_auc, knn_auc, rf_auc, xgb_auc, logistic_auc)*100
+)
+
+
+# Display the data frame
+print(model_data_mix)
+
+
+accuracies <- c(svm_acc[2], dt_acc, knn_acc, rf_acc, xgb_acc, logistic_acc)*100
+recalls <-c(svm_recall, tree_recall, knn_recall, rf_recall, xgb_recall, logistic_recall)*100
+precisions <- c(svm_precision, tree_precision, knn_precision, rf_precision, xgb_precision, logistic_precision)*100
+aucs <- c(svm_auc, tree_auc, knn_auc, rf_auc, xgb_auc, logistic_auc)*100
+
+# Combine metrics into a matrix
+metrics_matrix <- rbind(accuracies, recalls, precisions, aucs)
+
+# Create bar chart depend on model
+barplot(metrics_matrix, beside = TRUE, col = rainbow(4),
+        names.arg = c("SVM", "DT", "Knn", "RF", "Xgb", "LGR"), legend.text = rownames(metrics_matrix),
+        main = 'Performance Metrics for Classification Models',
+        xlab = 'Models', ylab = 'Percentage')
+# Create bar chart depend on measure index
+metrics_matrix_transposed = t(metrics_matrix)
+
+
+
+# Define colors for each model
+model_colors <- c("red", "blue", "green", "purple", "orange", "cyan")
+
+# Bar plot
+barplot(metrics_matrix_transposed, beside = TRUE,
+        col = model_colors,
+        names.arg = c("accuracies", "recalls", "precisions", "aucs "),
+        legend.text = c("SVM", "DT", "Knn", "RF", "Xgb", "LGR"),
+        args.legend = list(x = "topright", bty = "n"),  # Adjust legend position
+        main = 'Performance Metrics for Classification Models',
+        xlab = 'Metrics', ylab = 'Percentage')
+
+# Add legend separately to control its appearance
+legend("topright", legend = c("SVM", "DT", "Knn", "RF", "Xgb", "LGR"), fill = model_colors, bty = "n")
+
+
+# Create bar chart depend on measure index
+metrics_matrix_transposed = t(metrics_matrix)
+
+
+barplot(metrics_matrix_transposed, beside = TRUE, col = rainbow(6),
+        names.arg = c("accuracies", "recalls", "precisions", "aucs "), legend.text =c("SVM", "DT", "Knn", "RF", "Xgb", "LGR"),
+        main = 'Performance Metrics for Classification Models',
+        xlab = 'Models', ylab = 'Percentage')
+
+```
+
+
+
+
